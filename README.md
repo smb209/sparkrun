@@ -38,6 +38,9 @@ One command — installs sparkrun, then launches the guided setup wizard to crea
 # Run an inference workload
 sparkrun run qwen3-1.7b-vllm
 
+# Run from a host-local model directory (no model sync)
+sparkrun run qwen3-1.7b-vllm --local-model /models/Qwen3-1.7B
+
 # Multi-node tensor parallelism (TP maps to node count on DGX Spark)
 sparkrun run qwen3-1.7b-vllm --tp 2
 
@@ -59,6 +62,7 @@ See the [full CLI reference](https://sparkrun.dev/cli/overview/) for all command
 - **Git-based recipe registries** — we publish official recipes, community recipes, and benchmarked recipes via [Spark Arena](https://spark-arena.com), plus you can add your own registries.
 - **Guided setup wizard** — cluster creation, SSH mesh, CX7 auto-detection, sudoers, earlyoom
 - **Model & container distribution** — syncs models and images to cluster nodes over SSH automatically
+- **Local model directories** — skip model distribution and mount a host path directly with `--local-model` or recipe `local_model`
 
 ## Spark Arena
 [Spark Arena](https://spark-arena.com) is the community hub for DGX Spark recipe benchmarks — browse benchmark results, then run them directly with sparkrun.

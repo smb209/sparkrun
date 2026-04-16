@@ -45,6 +45,7 @@ logger = logging.getLogger(__name__)
 @click.option("--solo", is_flag=True, help="Force single-node mode", hidden=True)
 @click.option("--port", type=int, default=None, help="Override serve port")
 @click.option("--served-model-name", default=None, help="Override served model name")
+@click.option("--local-model", default=None, type=click.Path(), help="Use a host-side local model directory")
 @click.option("--ray-port", type=int, default=46379, help="Ray GCS port (vllm-ray)", hidden=HIDE_ADVANCED_OPTIONS)
 @click.option("--init-port", type=int, default=25000, help="vllm/SGLang distributed init port", hidden=HIDE_ADVANCED_OPTIONS)
 @click.option("--dashboard", is_flag=True, help="Enable Ray dashboard on head node", hidden=HIDE_ADVANCED_OPTIONS)
@@ -104,6 +105,7 @@ def run(
     pipeline_parallel,
     gpu_mem,
     served_model_name,
+    local_model,
     max_model_len,
     image,
     ray_port,
@@ -177,6 +179,7 @@ def run(
         # custom overrides
         port=port,
         served_model_name=served_model_name,
+        local_model=local_model,
     )
 
     # Validate recipe (after resolve so runtime is populated)
@@ -247,7 +250,11 @@ def run(
     click.echo()
     click.echo("Runtime:   %s" % runtime.runtime_name)
     click.echo("Image:     %s" % container_image)
-    click.echo("Model:     %s" % recipe.model)
+    if recipe.local_model:
+        click.echo("Model:     %s (local)" % (recipe.model or "<local_model>"))
+        click.echo("Local:     %s" % recipe.local_model)
+    else:
+        click.echo("Model:     %s" % recipe.model)
     if is_solo:
         click.echo("Mode:      solo")
     else:

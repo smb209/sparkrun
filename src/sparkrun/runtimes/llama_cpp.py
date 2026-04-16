@@ -256,7 +256,7 @@ class LlamaCppRuntime(RuntimePlugin):
         parallelism_layer = {"split_mode": split_mode_override} if split_mode_override else {}
         config = Variables(sources=(parallelism_layer, config_dict, _LLAMA_CPP_DEFAULTS), env_placement=EnvPlacement.IGNORED)
 
-        model = recipe.model
+        model = str(config.get("model") or recipe.model)
 
         # Check for pre-resolved GGUF path from distribution pre-sync
         gguf_path = config.get("_gguf_model_path")
@@ -423,7 +423,7 @@ class LlamaCppRuntime(RuntimePlugin):
 
         progress = kwargs.pop("progress", None)
 
-        ctx = ClusterContext.build(self, hosts, image, cluster_id, env, cache_dir, config, dry_run)
+        ctx = ClusterContext.build(self, hosts, image, cluster_id, env, cache_dir, recipe.local_model if recipe else None, config, dry_run)
         head_container = self._container_name(cluster_id, "head")
         worker_container_name = self._container_name(cluster_id, "worker")
 

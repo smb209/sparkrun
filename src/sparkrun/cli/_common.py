@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+from os import path as osp
 import sys
 from typing import TYPE_CHECKING, Any
 
@@ -799,6 +800,8 @@ def _apply_recipe_overrides(
     for k, v in kwargs.items():
         if v is not None:
             overrides[k] = v
+            if k == "local_model" and recipe is not None:
+                recipe.local_model = osp.expandvars(osp.expanduser(str(v)))
 
     # Resolve runtime with overrides visible to resolvers
     if recipe is not None:

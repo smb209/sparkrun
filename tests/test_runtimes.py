@@ -132,6 +132,21 @@ def test_vllm_generate_command_structured():
     assert "--gpu-memory-utilization 0.9" in cmd
 
 
+def test_vllm_generate_command_uses_local_model_path():
+    """Structured command uses /local_model when recipe.local_model is set."""
+    recipe_data = {
+        "name": "test-recipe",
+        "runtime": "vllm",
+        "local_model": "/models/qwen",
+        "defaults": {"port": 8000},
+    }
+    recipe = Recipe.from_dict(recipe_data)
+    runtime = VllmDistributedRuntime()
+
+    cmd = runtime.generate_command(recipe, {}, is_cluster=False)
+    assert cmd.startswith("vllm serve /local_model")
+
+
 def test_vllm_generate_command_cluster():
     """Cluster mode adds --distributed-executor-backend ray."""
     recipe_data = {
@@ -193,7 +208,7 @@ def test_vllm_validate_recipe_no_model():
 
     issues = runtime.validate_recipe(recipe)
     assert len(issues) == 1
-    assert "model is required" in issues[0]
+    assert "model or local_model is required" in issues[0]
 
 
 def test_vllm_cluster_env():
@@ -298,7 +313,7 @@ def test_sglang_validate_recipe_no_model():
 
     issues = runtime.validate_recipe(recipe)
     assert len(issues) == 1
-    assert "model is required" in issues[0]
+    assert "model or local_model is required" in issues[0]
 
 
 # --- VllmDistributedRuntime Tests ---
@@ -476,7 +491,7 @@ def test_vllm_distributed_validate_recipe_no_model():
 
     issues = runtime.validate_recipe(recipe)
     assert len(issues) == 1
-    assert "model is required" in issues[0]
+    assert "model or local_model is required" in issues[0]
 
 
 def test_vllm_distributed_container_name():
@@ -652,7 +667,7 @@ def test_eugr_validate_recipe():
 
     issues = runtime.validate_recipe(recipe)
     # Should pass validation
-    assert all("model is required" not in issue for issue in issues)
+    assert all("model or local_model is required" not in issue for issue in issues)
 
 
 class TestEugrPrepare:
@@ -1294,7 +1309,7 @@ def test_llama_cpp_validate_recipe_no_model():
 
     issues = runtime.validate_recipe(recipe)
     assert len(issues) == 1
-    assert "model is required" in issues[0]
+    assert "model or local_model is required" in issues[0]
 
 
 def test_llama_cpp_build_rpc_head_command():

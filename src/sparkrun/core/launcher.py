@@ -259,6 +259,7 @@ def launch_inference(
             transfer_mode=effective_transfer_mode,
             transfer_interface=transfer_interface,
             local_cache_dir=effective_local_cache,
+            local_model=recipe.local_model,
             pre_ib=transfer_result,
         )
         # Re-save job metadata with IP maps from IB detection
@@ -332,7 +333,7 @@ def launch_inference(
     # GGUF model resolution
     from sparkrun.models.download import is_gguf_model, resolve_gguf_container_path
 
-    if is_gguf_model(recipe.model) and not dry_run:
+    if is_gguf_model(recipe.model) and not dry_run and not recipe.local_model:
         gguf_container_path = resolve_gguf_container_path(
             recipe.model,
             effective_cache_dir,

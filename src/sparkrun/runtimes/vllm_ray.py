@@ -69,7 +69,7 @@ class VllmRayRuntime(VllmMixin, RuntimePlugin):
         self, recipe: Recipe, config, is_cluster: bool, num_nodes: int, skip_keys: set[str] | frozenset[str] = frozenset()
     ) -> str:
         """Build the vllm serve command from structured config."""
-        parts = ["vllm", "serve", recipe.model]
+        parts = ["vllm", "serve", str(config.get("model") or recipe.model)]
 
         # Auto-inject cluster args
         if is_cluster:
@@ -246,7 +246,7 @@ class VllmRayRuntime(VllmMixin, RuntimePlugin):
         progress = kwargs.pop("progress", None)
         combined_docker_opts = (self.get_extra_docker_opts() or []) + (extra_docker_opts or [])
 
-        ctx = ClusterContext.build(self, hosts, image, cluster_id, env, cache_dir, config, dry_run)
+        ctx = ClusterContext.build(self, hosts, image, cluster_id, env, cache_dir, recipe.local_model if recipe else None, config, dry_run)
         head_container = self.executor.container_name(cluster_id, "head")
         worker_container = self.executor.container_name(cluster_id, "worker")
 

@@ -22,6 +22,60 @@ class DistributionError(Exception):
     """Raised when resource distribution (image or model sync) fails."""
 
 
+def _validate_local_model_on_hosts(
+    local_model: str,
+    hosts: list[str],
+    ssh_kwargs: dict,
+    dry_run: bool,
+) -> dict[str, str]:
+    """Validate local_model directory on each target host.
+
+    Returns a mapping of ``host -> reason`` for failed validations.
+    Reasons: ``missing_dir``, ``invalid_model_dir``, ``check_failed``.
+    """
+    if dry_run or not hosts:
+        return {}
+
+    from sparkrun.orchestration.ssh import run_remote_scripts_parallel
+
+    quoted = local_model.replace("'", "'\"'\"'")
+    script = (
+        "#!/usr/bin/env bash\n"
+        "set -e\n"
+        "p='%s'\n"
+        "if [ ! -d \"$p\" ]; then echo \"missing_dir:$p\"; exit 2; fi\n"
+        "if [ -f \"$p/config.json\" ] || [ -f \"$p/params.json\" ] || ls \"$p\"/*.gguf >/dev/null 2>&1; then exit 0; fi\n"
+        "if [ -d \"$p/snapshots\" ]; then\n"
+        "  for d in \"$p\"/snapshots/*; do\n"
+        "    [ -d \"$d\" ] || continue\n"
+        "    if [ -f \"$d/config.json\" ] || [ -f \"$d/params.json\" ] || ls \"$d\"/*.gguf >/dev/null 2>&1; then exit 0; fi\n"
+        "  done\n"
+        "fi\n"
+        "echo \"invalid_model_dir:$p\"\n"
+        "exit 3\n"
+    ) % quoted
+
+    results = run_remote_scripts_parallel(
+        hosts,
+        script,
+        timeout=20,
+        dry_run=dry_run,
+        **ssh_kwargs,
+    )
+    failures: dict[str, str] = {}
+    for r in results:
+        if r.success:
+            continue
+        combined = "%s\n%s" % (r.stdout or "", r.stderr or "")
+        if "missing_dir:" in combined:
+            failures[r.host] = "missing_dir"
+        elif "invalid_model_dir:" in combined:
+            failures[r.host] = "invalid_model_dir"
+        else:
+            failures[r.host] = "check_failed"
+    return failures
+
+
 @dataclass
 class TransferModeResult:
     """Result of :func:`resolve_auto_transfer_mode`.
@@ -306,6 +360,7 @@ def distribute_resources(
     transfer_mode: str = "auto",
     transfer_interface: str | None = None,
     local_cache_dir: str | None = None,
+    local_model: str | None = None,
     pre_ib: TransferModeResult | None = None,
 ) -> tuple["ClusterCommEnv | None", dict[str, str], dict[str, str]]:
     """Detect IB, distribute container image and model to target hosts.
@@ -346,6 +401,8 @@ def distribute_resources(
             management IPs regardless of IB availability.
         local_cache_dir: Control-machine cache dir for model downloads.
             Defaults to *cache_dir* when not provided.
+        local_model: Optional host-side local model directory. When set,
+            model download and distribution are skipped.
 
     Returns:
         Tuple of (comm_env, ib_ip_map, mgmt_ip_map).  ``comm_env`` is
@@ -362,9 +419,10 @@ def distribute_resources(
     from sparkrun.core.pending_ops import pending_op
 
     # Common kwargs for pending-op lock files
+    effective_model = "" if local_model else model
     _pop_kw = dict(
         recipe=recipe_name,
-        model=model,
+        model=effective_model,
         image=image,
         hosts=host_list,
         cache_dir=str(config.cache_dir),
@@ -372,7 +430,7 @@ def distribute_resources(
     # Derive a cluster_id-ish key for the lock files.  The real cluster_id
     # is generated earlier in run(); we receive the image+model+hosts here
     # so we hash the same inputs to keep the lock name stable.
-    _lock_key = hashlib.sha256(f"{image}|{model}|{','.join(host_list)}".encode()).hexdigest()[:12]
+    _lock_key = hashlib.sha256(f"{image}|{effective_model}|{','.join(host_list)}".encode()).hexdigest()[:12]
     _lock_id = f"sparkrun_{_lock_key}"
 
     effective_local_cache = local_cache_dir or cache_dir
@@ -385,11 +443,11 @@ def distribute_resources(
             logger.info("Ensuring container image is available locally...")
             if ensure_image(image, dry_run=dry_run) != 0:
                 raise DistributionError(f"Failed to pull or locate image: {image}")
-        if model:
+        if effective_model:
             with pending_op(_lock_id, "model_download", **_pop_kw):
-                logger.info("Ensuring model %s is available locally...", model)
-                if download_model(model, cache_dir=effective_local_cache, revision=model_revision, dry_run=dry_run) != 0:
-                    raise DistributionError(f"Failed to download model: {model}")
+                logger.info("Ensuring model %s is available locally...", effective_model)
+                if download_model(effective_model, cache_dir=effective_local_cache, revision=model_revision, dry_run=dry_run) != 0:
+                    raise DistributionError(f"Failed to download model: {effective_model}")
         return None, {}, {}  # let runtime handle its own local IB detection
 
     from sparkrun.orchestration.comm_env import ClusterCommEnv
@@ -484,7 +542,13 @@ def distribute_resources(
     # Step 2: Distribute container image
     from sparkrun.core.progress import PROGRESS as _PROGRESS_LEVEL
 
-    logger.info("Distribution mode: %s (image=%s, model=%s, hosts=%d)", transfer_mode, image, model or "(none)", len(host_list))
+    logger.info(
+        "Distribution mode: %s (image=%s, model=%s, hosts=%d)",
+        transfer_mode,
+        image,
+        effective_model or "(none)",
+        len(host_list),
+    )
     logger.log(_PROGRESS_LEVEL, "  Checking container image on %d host(s)", len(host_list))
     with pending_op(_lock_id, "image_distribute", **_pop_kw):
         if transfer_mode == "local":
@@ -534,12 +598,32 @@ def distribute_resources(
         raise DistributionError("Image distribution failed on: %s" % ", ".join(img_failed))
 
     # Step 3: Distribute model
-    if model:
+    if local_model:
+        validation_failures = _validate_local_model_on_hosts(local_model, host_list, ssh_kwargs, dry_run)
+        if validation_failures:
+            missing = sorted([h for h, reason in validation_failures.items() if reason == "missing_dir"])
+            invalid = sorted([h for h, reason in validation_failures.items() if reason == "invalid_model_dir"])
+            unknown = sorted([h for h, reason in validation_failures.items() if reason == "check_failed"])
+            parts: list[str] = []
+            if missing:
+                parts.append("missing directory on %s" % ", ".join(missing))
+            if invalid:
+                parts.append("invalid model directory on %s" % ", ".join(invalid))
+            if unknown:
+                parts.append("validation check failed on %s" % ", ".join(unknown))
+            raise DistributionError(
+                "local_model validation failed for '%s': %s. "
+                "Ensure the path exists on target hosts and points to a model directory with "
+                "config.json/params.json or .gguf files (or a cache path containing snapshots/...)."
+                % (local_model, "; ".join(parts))
+            )
+        logger.info("local_model is set (%s); skipping model distribution.", local_model)
+    elif effective_model:
         logger.log(_PROGRESS_LEVEL, "  Syncing model to %d host(s)", len(host_list))
         with pending_op(_lock_id, "model_download", **_pop_kw):
             if transfer_mode == "local":
                 mdl_failed = distribute_model_from_local(
-                    model,
+                    effective_model,
                     host_list,
                     cache_dir=cache_dir,
                     local_cache_dir=effective_local_cache,
@@ -550,7 +634,7 @@ def distribute_resources(
                 )
             elif transfer_mode == "push":
                 mdl_failed = _distribute_model_push(
-                    model,
+                    effective_model,
                     host_list,
                     cache_dir=cache_dir,
                     worker_transfer_hosts=worker_transfer_hosts,
@@ -561,7 +645,7 @@ def distribute_resources(
                 )
             elif transfer_mode == "delegated":
                 mdl_failed = distribute_model_from_head(
-                    model,
+                    effective_model,
                     host_list,
                     cache_dir=cache_dir,
                     revision=model_revision,
@@ -572,7 +656,7 @@ def distribute_resources(
                 if mdl_failed and _auto_delegated:
                     logger.info("Delegated model distribution failed, falling back to push mode")
                     mdl_failed = _distribute_model_push(
-                        model,
+                        effective_model,
                         host_list,
                         cache_dir=cache_dir,
                         worker_transfer_hosts=worker_transfer_hosts,
@@ -583,7 +667,7 @@ def distribute_resources(
                     )
             else:
                 mdl_failed = distribute_model_from_local(
-                    model,
+                    effective_model,
                     host_list,
                     cache_dir=cache_dir,
                     local_cache_dir=effective_local_cache,

@@ -1550,6 +1550,57 @@ class TestDistributeResourcesTransferMode:
         )
         mock_img.assert_called_once()
 
+    @mock.patch("sparkrun.models.distribute.distribute_model_from_local")
+    @mock.patch("sparkrun.containers.distribute.distribute_image_from_local")
+    @mock.patch("sparkrun.orchestration.infiniband.validate_ib_connectivity", return_value={})
+    @mock.patch("sparkrun.orchestration.infiniband.detect_ib_for_hosts")
+    @mock.patch("sparkrun.orchestration.primitives.build_ssh_kwargs", return_value={})
+    def test_local_model_skips_model_distribution(self, mock_ssh, mock_ib, mock_validate, mock_img, mock_model):
+        """local_model bypasses HF model distribution while still syncing image."""
+        mock_ib.return_value = mock.MagicMock(nccl_env={}, ib_ip_map={}, mgmt_ip_map={})
+        mock_img.return_value = []
+        from sparkrun.orchestration.distribution import distribute_resources
+
+        distribute_resources(
+            "img:latest",
+            "org/model",
+            ["h1", "h2"],
+            "/cache",
+            self._make_config(),
+            dry_run=True,
+            transfer_mode="local",
+            local_model="/models/qwen",
+        )
+        mock_img.assert_called_once()
+        mock_model.assert_not_called()
+
+    @mock.patch("sparkrun.orchestration.ssh.run_remote_scripts_parallel")
+    @mock.patch("sparkrun.containers.distribute.distribute_image_from_local")
+    @mock.patch("sparkrun.orchestration.infiniband.validate_ib_connectivity", return_value={})
+    @mock.patch("sparkrun.orchestration.infiniband.detect_ib_for_hosts")
+    @mock.patch("sparkrun.orchestration.primitives.build_ssh_kwargs", return_value={})
+    def test_local_model_missing_dir_raises(self, mock_ssh, mock_ib, mock_validate, mock_img, mock_remote_checks):
+        """Missing local_model path on a host raises DistributionError before launch."""
+        mock_ib.return_value = mock.MagicMock(nccl_env={}, ib_ip_map={}, mgmt_ip_map={})
+        mock_img.return_value = []
+        mock_remote_checks.return_value = [
+            RemoteResult(host="h1", returncode=2, stdout="missing_dir:/models/qwen\n", stderr=""),
+            RemoteResult(host="h2", returncode=0, stdout="", stderr=""),
+        ]
+        from sparkrun.orchestration.distribution import DistributionError, distribute_resources
+
+        with pytest.raises(DistributionError, match="local_model validation failed"):
+            distribute_resources(
+                "img:latest",
+                "org/model",
+                ["h1", "h2"],
+                "/cache",
+                self._make_config(),
+                dry_run=False,
+                transfer_mode="local",
+                local_model="/models/qwen",
+            )
+
     @mock.patch("sparkrun.orchestration.distribution._distribute_image_push")
     @mock.patch("sparkrun.containers.distribute.distribute_image_from_head")
     @mock.patch("sparkrun.orchestration.distribution.is_control_in_cluster", return_value=False)

@@ -280,8 +280,8 @@ class RuntimePlugin(Plugin):
         extend the returned list with runtime-specific checks.
         """
         issues = []
-        if not recipe.model:
-            issues.append("[%s] model is required" % self.runtime_name)
+        if not recipe.model and not recipe.local_model:
+            issues.append("[%s] model or local_model is required" % self.runtime_name)
         return issues
 
     def compute_required_nodes(self, recipe: Recipe, overrides: dict[str, Any] | None = None) -> int | None:
@@ -773,7 +773,7 @@ class RuntimePlugin(Plugin):
         ssh_kwargs = build_ssh_kwargs(config)
         is_local = should_run_locally(host, ssh_kwargs.get("ssh_user"))
         container_name = self.executor.container_name(cluster_id, "solo")
-        volumes = build_volumes(cache_dir, extra=self.get_extra_volumes())
+        volumes = build_volumes(cache_dir, extra=self.get_extra_volumes(), local_model=recipe.local_model if recipe else None)
         all_env = merge_env(
             self.get_common_env(),  # base env
             self.get_solo_env(),  # solo-specific
@@ -1086,6 +1086,7 @@ class RuntimePlugin(Plugin):
             cluster_id=cluster_id,
             env=env,
             cache_dir=cache_dir,
+            local_model=recipe.local_model if recipe else None,
             config=config,
             dry_run=dry_run,
             topology=topology,

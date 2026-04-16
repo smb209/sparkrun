@@ -27,19 +27,26 @@ Everything else is optional. When `command` is omitted, the runtime generates it
 
 ### Core
 
-| Field             | Type   | Required    | Default         | Description                                                       |
-|-------------------|--------|-------------|-----------------|-------------------------------------------------------------------|
-| `model`           | string | **yes**     | —               | HuggingFace model ID or GGUF spec (`Qwen/Qwen3-1.7B-GGUF:Q4_K_M`) |
-| `model_revision`  | string | no          | `null`          | Pin to a specific HF revision (branch, tag, or commit hash)       |
-| `runtime`         | string | no          | auto-detected   | Runtime identifier. See [Runtime Resolution](#runtime-resolution) |
-| `runtime_version` | string | no          | `""`            | Informational version tag                                         |
-| `container`       | string | recommended | runtime default | Container image reference                                         |
+| Field             | Type   | Required    | Default         | Description                                                                    |
+|-------------------|--------|-------------|-----------------|--------------------------------------------------------------------------------|
+| `model`           | string | no*         | —               | HuggingFace model ID or GGUF spec (`Qwen/Qwen3-1.7B-GGUF:Q4_K_M`)             |
+| `local_model`     | string | no*         | `null`          | Absolute host path to local model dir, mounted at `/local_model` in container |
+| `model_revision`  | string | no          | `null`          | Pin to a specific HF revision (branch, tag, or commit hash)                   |
+| `runtime`         | string | no          | auto-detected   | Runtime identifier. See [Runtime Resolution](#runtime-resolution)              |
+| `runtime_version` | string | no          | `""`            | Informational version tag                                                      |
+| `container`       | string | recommended | runtime default | Container image reference                                                      |
 
 GGUF models use colon syntax (`repo:quant`) to download only the matching quantization files. When pre-synced, sparkrun
 rewrites `-hf` to `-m` with the resolved container cache path.
 
 `model_revision` affects download, cache checking, VRAM auto-detection, and model sync. Pin to a commit hash for
 reproducible deployments.
+
+`*` At least one of `model` or `local_model` must be set.
+
+`local_model` makes sparkrun skip model download/distribution and bind-mount the host directory to `/local_model`. When
+set, `{model}` resolves to `/local_model` for command generation. If `model` is also provided, it is treated as metadata
+(for display and VRAM estimation), not as the serving path.
 
 ### Topology
 
@@ -130,7 +137,7 @@ sparkrun run my-recipe -o max_model_len=8192 --port 9000
 2. Recipe defaults: `{port: 8000, tensor_parallel: 2, gpu_memory_utilization: 0.9}`
 3. Result: `{port: 9000, max_model_len: 8192, tensor_parallel: 2, gpu_memory_utilization: 0.9}`
 
-`{model}` is always injected from the top-level `model` field. Substitution is iterative (handles nested references like
+`{model}` is always injected from the effective model source (recipe `model`, or `/local_model` when `local_model` is set). Substitution is iterative (handles nested references like
 `base_url: "http://localhost:{port}"`).
 
 ---
@@ -162,14 +169,14 @@ omit:** standard configs where the runtime's `generate_command()` is sufficient.
 
 When `runtime` is empty or `"vllm"`:
 
-| Condition                                                             | Resolved Runtime   |
-|-----------------------------------------------------------------------|--------------------|
+| Condition                                                               | Resolved Runtime   |
+|-------------------------------------------------------------------------|--------------------|
 | `recipe_version: "1"` or `build_args`/`mods` present (deprecated)      | `eugr-vllm`        |
-| `distributed_executor_backend: ray` in defaults or command            | `vllm-ray`         |
-| Bare `vllm` or empty                                                  | `vllm-distributed` |
-| Command starts with `sglang serve` / `python -m sglang.launch_server` | `sglang`           |
-| Command starts with `llama-server`                                    | `llama-cpp`        |
-| Command starts with `trtllm-serve` / `mpirun...trtllm`                | `trtllm`           |
+| `distributed_executor_backend: ray` in defaults or command              | `vllm-ray`         |
+| Bare `vllm` or empty                                                    | `vllm-distributed` |
+| Command starts with `sglang serve` / `python -m sglang.launch_server`  | `sglang`           |
+| Command starts with `llama-server`                                      | `llama-cpp`        |
+| Command starts with `trtllm-serve` / `mpirun...trtllm`                  | `trtllm`           |
 
 Explicit `runtime` always wins. Command-hint detection only fires when `runtime` is omitted.
 
@@ -400,7 +407,7 @@ Search order:
 1. **`@registry/recipe-name`** — scoped lookup in specific registry
 2. **URL** — HTTP/HTTPS fetched and cached
 3. **File path** — exact or with `.yaml`/`.yml` extension
-4. **CWD scan** — `.yaml`/`.yml` files that are valid recipes (must have `model`, `container`, resolvable `runtime`)
+4. **CWD scan** — `.yaml`/`.yml` files that are valid recipes (must have `model` or `local_model`, `container`, resolvable `runtime`)
 5. **Registry search** — flat + recursive lookup across all enabled registries
 
 Ambiguous names (same recipe in multiple registries) raise an error — use `@registry/name` to disambiguate.
@@ -455,3 +462,22 @@ command: |
 post_commands:
   - "curl -s http://{head_ip}:{port}/v1/models | python3 -m json.tool"
 ```
+
+## Local Model Example
+
+```yaml
+recipe_version: "2"
+model: Qwen/Qwen3-8B
+local_model: /models/Qwen3-8B
+runtime: vllm
+container: scitrera/dgx-spark-vllm:latest
+
+defaults:
+  port: 8000
+  tensor_parallel: 1
+```
+
+- `local_model` must be an absolute path on the target hosts
+- The path is mounted into containers as `/local_model`
+- Model sync/distribution is skipped for this recipe
+- `model` remains useful for metadata/VRAM estimation

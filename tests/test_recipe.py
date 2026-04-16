@@ -280,6 +280,31 @@ def test_recipe_validate_missing_model():
     assert any("model" in issue.lower() for issue in issues)
 
 
+def test_recipe_validate_local_model_only():
+    """local_model-only recipes are valid without top-level model."""
+    recipe = Recipe.from_dict({"name": "Test", "runtime": "vllm", "local_model": "/models/qwen"})
+    issues = recipe.validate()
+    assert not any("model" in issue.lower() for issue in issues)
+
+
+def test_build_config_chain_local_model_sets_model_path():
+    """local_model injects /local_model into the model substitution key."""
+    recipe = Recipe.from_dict({"name": "Test", "runtime": "vllm", "local_model": "/models/qwen"})
+    config = recipe.build_config_chain()
+    assert config.get("model") == "/local_model"
+    assert config.get("local_model") == "/local_model"
+    assert config.get("_local_model_path") == "/local_model"
+
+
+def test_build_config_chain_local_model_cli_override_does_not_leak_host_path():
+    """CLI local_model host path must not override in-container substitution path."""
+    recipe = Recipe.from_dict({"name": "Test", "runtime": "vllm", "local_model": "/models/qwen"})
+    config = recipe.build_config_chain({"local_model": "/model/Qwen3.5-35B-A3B-FP8"})
+    assert config.get("model") == "/local_model"
+    assert config.get("local_model") == "/local_model"
+    assert config.get("_host_local_model") == "/models/qwen"
+
+
 def test_recipe_validate_invalid_mode():
     """Validate a recipe with invalid mode and verify error is generated.
 
@@ -342,6 +367,24 @@ def test_recipe_render_command(sample_v2_recipe_data: dict[str, Any]):
     assert "{tensor_parallel}" not in rendered
     assert "meta-llama/Llama-2-7b-hf" in rendered
     assert "9000" in rendered  # Overridden port
+
+
+def test_render_command_local_model_rewrites_host_path_literals():
+    """Literal local_model host paths in templates are rewritten to /local_model."""
+    recipe = Recipe.from_dict(
+        {
+            "name": "Test",
+            "runtime": "vllm",
+            "local_model": "/model/Qwen3.5-35B-A3B-FP8",
+            "command": "vllm serve /model/Qwen3.5-35B-A3B-FP8 --port {port}",
+            "defaults": {"port": 8000},
+        }
+    )
+    config = recipe.build_config_chain()
+    rendered = recipe.render_command(config)
+    assert rendered is not None
+    assert "vllm serve /local_model" in rendered
+    assert "/model/Qwen3.5-35B-A3B-FP8" not in rendered
 
 
 def test_recipe_render_command_no_template():
@@ -1575,6 +1618,20 @@ class TestIsRecipeFile:
         )
         assert is_recipe_file(f) is False
 
+    def test_local_model_without_model_is_valid_recipe_file(self, tmp_path):
+        """Recipes with local_model + container are valid even without model."""
+        f = tmp_path / "local-only.yaml"
+        f.write_text(
+            yaml.dump(
+                {
+                    "local_model": "/models/qwen",
+                    "container": "img:latest",
+                    "runtime": "vllm",
+                }
+            )
+        )
+        assert is_recipe_file(f) is True
+
     def test_missing_container(self, tmp_path):
         """Returns False when container is missing."""
         f = tmp_path / "no-container.yaml"
@@ -2491,6 +2548,18 @@ class TestRecipeSerialization:
         )
         restored = Recipe._deserialize(recipe.__getstate__())
         assert restored.executor_config == {"auto_remove": True}
+
+    def test_round_trip_local_model(self):
+        """local_model survives recipe serialization."""
+        recipe = Recipe.from_dict(
+            {
+                "runtime": "vllm",
+                "local_model": "/models/qwen",
+                "container": "img:latest",
+            }
+        )
+        restored = Recipe._deserialize(recipe.__getstate__())
+        assert restored.local_model == "/models/qwen"
 
     def test_round_trip_qualified_name_override(self, sample_v2_recipe_data: dict):
         """_qualified_name_override survives round-trip."""

@@ -44,6 +44,7 @@ sparkrun run <recipe> --tp <N> --no-follow
 sparkrun run <recipe> --port 9000 --gpu-mem 0.8 --no-follow
 sparkrun run <recipe> -o max_model_len=8192 -o attention_backend=triton --no-follow
 sparkrun run <recipe> --served-model-name my-model --no-follow
+sparkrun run <recipe> --local-model /models/MyModel --no-follow
 sparkrun run <recipe> --pp 2 --tp 2 --no-follow   # pipeline + tensor parallelism
 sparkrun run <recipe> --max-model-len 32768 --no-follow
 
@@ -258,6 +259,7 @@ When running workloads:
 | `--gpu-mem` | GPU memory utilization (0.0-1.0) |
 | `--max-model-len` | Override maximum model context length |
 | `--served-model-name` | Override the served model name |
+| `--local-model` | Use host-local model directory (mounted as `/local_model`) |
 | `--image` | Override container image |
 | `-o KEY=VALUE` | Override any recipe default |
 | `--ensure` | Only launch if not already running; exit 0 if already up |
@@ -281,6 +283,7 @@ When running workloads:
 - Ctrl+C while following logs detaches safely -- it never kills the inference job
 - Use `sparkrun stop --all` to stop all sparkrun containers without specifying a recipe
 - `--solo` is deprecated; use `--tp 1` instead
+- `--local-model` skips model download/distribution and serves from `/local_model` inside the container
 - Recipe names support `@registry/name` syntax for explicit registry selection
 - `sparkrun update` upgrades sparkrun itself (if installed via uv) and updates all registries
 </Important_Notes>

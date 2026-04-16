@@ -128,7 +128,7 @@ class VllmDistributedRuntime(VllmMixin, RuntimePlugin):
 
     def _build_base_command(self, recipe: Recipe, config, skip_keys: set[str] | frozenset[str] = frozenset()) -> str:
         """Build the vllm serve command without cluster-specific arguments."""
-        parts = ["vllm", "serve", recipe.model]
+        parts = ["vllm", "serve", str(config.get("model") or recipe.model)]
 
         tp = config.get("tensor_parallel")
         if tp:

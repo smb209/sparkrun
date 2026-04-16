@@ -129,7 +129,7 @@ class TrtllmRuntime(RuntimePlugin):
 
     def _build_command(self, recipe: Recipe, config, skip_keys: set[str] | frozenset[str] = frozenset()) -> str:
         """Build the trtllm-serve command from structured config."""
-        parts = ["trtllm-serve", recipe.model]
+        parts = ["trtllm-serve", str(config.get("model") or recipe.model)]
 
         # Default to pytorch backend if not specified
         backend = config.get("backend")
@@ -447,7 +447,7 @@ class TrtllmRuntime(RuntimePlugin):
 
         progress = kwargs.pop("progress", None)
 
-        ctx = ClusterContext.build(self, hosts, image, cluster_id, env, cache_dir, config, dry_run)
+        ctx = ClusterContext.build(self, hosts, image, cluster_id, env, cache_dir, recipe.local_model if recipe else None, config, dry_run)
         extra_docker_opts = self.get_extra_docker_opts()
 
         self._print_cluster_banner(

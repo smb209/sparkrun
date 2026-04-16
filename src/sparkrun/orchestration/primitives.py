@@ -56,6 +56,7 @@ def build_ssh_kwargs(config: SparkrunConfig | None) -> dict:
 def build_volumes(
     cache_dir: str | None = None,
     extra: dict[str, str] | None = None,
+    local_model: str | None = None,
 ) -> dict[str, str]:
     """Build the standard volume mapping for HuggingFace cache + extras.
 
@@ -63,12 +64,15 @@ def build_volumes(
         cache_dir: Host-side HF cache path (defaults to
             :data:`sparkrun.config.DEFAULT_HF_CACHE_DIR`).
         extra: Additional host→container volume mappings.
+        local_model: Optional host-side local model directory to mount.
 
     Returns:
         Merged volume dict.
     """
     hf_cache = resolve_hf_cache_home(cache_dir)
     volumes: dict[str, str] = {hf_cache: "/cache/huggingface"}
+    if local_model:
+        volumes[local_model] = "/local_model"
     if extra:
         volumes.update(extra)
     return volumes

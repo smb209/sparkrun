@@ -49,6 +49,7 @@ sparkrun run <recipe> [options] --no-follow
 | `--gpu-mem F` | GPU memory utilization (0.0-1.0) |
 | `--max-model-len N` | Override maximum model context length |
 | `--served-model-name` | Override the served model name |
+| `--local-model PATH` | Use a host-side local model directory (mounted as `/local_model`) |
 | `--image` | Override container image |
 | `-o KEY=VALUE` | Override any recipe default (repeatable) |
 | `--ensure` | Only launch if not already running; exit 0 if already up |
@@ -65,3 +66,4 @@ sparkrun run <recipe> [options] --no-follow
 - Ctrl+C while following logs detaches safely — it never kills the inference job
 - `--ensure` is useful for idempotent scripts — it checks if the job is already running before launching
 - Recipe names support `@registry/name` syntax for explicit registry selection
+- When `--local-model` is used, model download/distribution is skipped and the runtime serves from `/local_model`

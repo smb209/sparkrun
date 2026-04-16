@@ -158,7 +158,7 @@ class SglangRuntime(RuntimePlugin):
     def _build_base_command(self, recipe: Recipe, config, skip_keys: set[str] | frozenset[str] = frozenset()) -> str:
         """Build the sglang command without cluster-specific arguments."""
         # For GGUF models, use the resolved file path instead of the HF repo name
-        model_path = config.get("_gguf_model_path") or recipe.model
+        model_path = config.get("_gguf_model_path") or config.get("model") or recipe.model
         parts = ["python3", "-m", "sglang.launch_server", "--model-path", str(model_path)]
 
         tp = config.get("tensor_parallel")

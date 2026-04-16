@@ -39,6 +39,7 @@ _KNOWN_KEYS = {
     "name",
     "description",
     "model",
+    "local_model",
     "model_revision",
     "runtime",
     "runtime_version",
@@ -242,7 +243,7 @@ def is_recipe_file(path: Path) -> bool:
         return False
     if not isinstance(data, dict):
         return False
-    if not data.get("model") or not data.get("container"):
+    if (not data.get("model") and not data.get("local_model")) or not data.get("container"):
         return False
     try:
         rt = resolve_runtime(data)
@@ -380,6 +381,9 @@ class Recipe:
         self.name: str = default_name  # data.get("name", default_name)
         self.description: str = data.get("description", "")
         self.model: str = data.get("model", "")
+        self.local_model: str | None = data.get("local_model")
+        if self.local_model:
+            self.local_model = osp.expandvars(osp.expanduser(str(self.local_model)))
         self.model_revision: str | None = data.get("model_revision")
         self.runtime: str = data.get("runtime", "")  # init to empty string if not provided
         self.runtime_version: str = data.get("runtime_version", "")
@@ -524,9 +528,25 @@ class Recipe:
 
         Also injects 'model' into the chain for template substitution.
         """
+        effective_cli = dict(cli_overrides or {})
+        effective_user = dict(user_config or {})
         base = dict(self.defaults)
-        base.setdefault("model", self.model)
-        return Variables(sources=(cli_overrides or {}, user_config or {}, base), env_placement=EnvPlacement.IGNORED)
+        if self.local_model:
+            # Stable in-container path for local model directory mounts.
+            base.setdefault("_local_model_path", "/local_model")
+            # Preserve original host path for introspection/debugging.
+            base.setdefault("_host_local_model", self.local_model)
+            # In-container substitutions should always resolve to the mount path.
+            base["local_model"] = base["_local_model_path"]
+            base["model"] = base["_local_model_path"]
+            # A CLI/user override for local_model is host-side metadata and
+            # must not leak into command template substitution inside container.
+            effective_cli.pop("local_model", None)
+            effective_user.pop("local_model", None)
+        else:
+            base.setdefault("local_model", self.local_model)
+            base.setdefault("model", self.model)
+        return Variables(sources=(effective_cli, effective_user, base), env_placement=EnvPlacement.IGNORED)
 
     def render_command(self, config_chain: Variables) -> str | None:
         """Render the command template with values from the config chain.
@@ -549,6 +569,12 @@ class Recipe:
         # ``\<space><newline>`` → ``\<newline>``
         rendered = _TRAILING_SPACE_CONTINUATION_RE.sub("\\\n", rendered)
 
+        # local_model is host-side; command must reference the in-container
+        # mount path. This also protects hand-written templates that contain
+        # the host path literally instead of placeholders.
+        if self.local_model:
+            rendered = rendered.replace(self.local_model, "/local_model")
+
         return rendered
 
     def validate(self) -> list[str]:
@@ -556,8 +582,10 @@ class Recipe:
         issues = []
         if not self.name:
             issues.append("Recipe missing 'name' field")
-        if not self.model:
-            issues.append("Recipe missing 'model' field")
+        if not self.model and not self.local_model:
+            issues.append("Recipe missing 'model' or 'local_model' field")
+        if self.local_model and not osp.isabs(self.local_model):
+            issues.append("local_model must be an absolute path, got %r" % self.local_model)
         if not self.runtime:
             issues.append("Recipe missing 'runtime' field")
         if self.mode not in ("solo", "cluster", "auto"):
@@ -861,6 +889,7 @@ class Recipe:
             "recipe_version": self.recipe_version,
             "description": self.description,
             "model": self.model,
+            "local_model": self.local_model,
             "model_revision": self.model_revision,
             "runtime": self.runtime,
             "runtime_version": self.runtime_version,
@@ -896,6 +925,7 @@ class Recipe:
         self.name = state.get("name", "unnamed")
         self.description = state.get("description", "")
         self.model = state.get("model", "")
+        self.local_model = state.get("local_model")
         self.model_revision = state.get("model_revision")
         self.runtime = state.get("runtime", "")
         self.runtime_version = state.get("runtime_version", "")
@@ -954,6 +984,7 @@ class Recipe:
     EXPORT_KEY_ORDER: list[str] = [
         "recipe_version",
         "model*",
+        "local_model",
         "runtime*",
         "builder*",
         "min_nodes",
@@ -986,7 +1017,11 @@ class Recipe:
         - Drops v1-only and internal keys (``recipe_version``, ``sparkrun_version``,
           ``name``, ``mode``, ``runtime_config``, unknown sweep keys).
         """
-        d: dict[str, Any] = {"recipe_version": self.recipe_version, "model": self.model}
+        d: dict[str, Any] = {"recipe_version": self.recipe_version}
+        if self.model:
+            d["model"] = self.model
+        if self.local_model:
+            d["local_model"] = self.local_model
 
         # -- Core fields (always present) --
         if self.model_revision:

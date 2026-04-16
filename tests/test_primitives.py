@@ -4,7 +4,7 @@ from unittest.mock import patch, MagicMock
 
 from sparkrun.orchestration.ssh import RemoteResult
 from sparkrun.orchestration.distribution import _is_cross_user, resolve_auto_transfer_mode, TransferModeResult
-from sparkrun.orchestration.primitives import check_tcp_reachability, find_available_port, should_run_locally
+from sparkrun.orchestration.primitives import build_volumes, check_tcp_reachability, find_available_port, should_run_locally
 
 
 # ---------------------------------------------------------------------------
@@ -45,6 +45,18 @@ def test_should_run_locally_remote_host():
 def test_should_run_locally_none_user_explicit():
     """Explicit None ssh_user on local host → True."""
     assert should_run_locally("127.0.0.1", None) is True
+
+
+def test_build_volumes_with_local_model():
+    """build_volumes adds /local_model mount when local_model is provided."""
+    volumes = build_volumes(cache_dir="/cache", local_model="/models/qwen")
+    assert volumes["/models/qwen"] == "/local_model"
+
+
+def test_build_volumes_without_local_model():
+    """build_volumes omits /local_model when not provided."""
+    volumes = build_volumes(cache_dir="/cache")
+    assert "/local_model" not in volumes.values()
 
 
 # ---------------------------------------------------------------------------

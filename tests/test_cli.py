@@ -2132,6 +2132,29 @@ class TestOptionOverrides:
             call_kwargs = mock_run.call_args.kwargs
             assert call_kwargs["overrides"]["served_model_name"] == "my-alias"
 
+    def test_local_model_override(self, runner, reset_bootstrap):
+        """--local-model sets recipe.local_model and adds override key."""
+        with mock.patch.object(SglangRuntime, "run", return_value=0) as mock_run:
+            result = runner.invoke(
+                main,
+                [
+                    "run",
+                    _TEST_RECIPE_NAME,
+                    "--solo",
+                    "--dry-run",
+                    "--hosts",
+                    "localhost",
+                    "--local-model",
+                    "/models/qwen",
+                ],
+            )
+
+            assert result.exit_code == 0
+            mock_run.assert_called_once()
+            call_kwargs = mock_run.call_args.kwargs
+            assert call_kwargs["recipe"].local_model == "/models/qwen"
+            assert call_kwargs["overrides"]["local_model"] == "/models/qwen"
+
     def test_max_model_len_override(self, runner, reset_bootstrap):
         """--max-model-len sets the override."""
         with mock.patch.object(SglangRuntime, "run", return_value=0) as mock_run:
