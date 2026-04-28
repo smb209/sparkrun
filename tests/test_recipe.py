@@ -305,6 +305,50 @@ def test_build_config_chain_local_model_cli_override_does_not_leak_host_path():
     assert config.get("_host_local_model") == "/models/qwen"
 
 
+def test_recipe_volumes_parsed_from_list():
+    recipe = Recipe.from_dict({"name": "Test", "model": "m", "runtime": "vllm", "volumes": ["/host/drafter:/drafter", "/host/data:/data"]})
+    assert recipe.volumes == {"/host/drafter": "/drafter", "/host/data": "/data"}
+
+
+def test_recipe_volumes_parsed_from_dict():
+    recipe = Recipe.from_dict({"name": "Test", "model": "m", "runtime": "vllm", "volumes": {"/host/x": "/x"}})
+    assert recipe.volumes == {"/host/x": "/x"}
+
+
+def test_recipe_volumes_expand_user(monkeypatch):
+    monkeypatch.setenv("HOME", "/home/alice")
+    recipe = Recipe.from_dict({"name": "Test", "model": "m", "runtime": "vllm", "volumes": ["~/models/drafter:/drafter"]})
+    assert recipe.volumes == {"/home/alice/models/drafter": "/drafter"}
+
+
+def test_recipe_volumes_reject_relative_host():
+    import pytest
+
+    with pytest.raises(ValueError, match="absolute"):
+        Recipe.from_dict({"name": "T", "model": "m", "runtime": "vllm", "volumes": ["rel/path:/x"]})
+
+
+def test_recipe_volumes_reject_relative_container():
+    import pytest
+
+    with pytest.raises(ValueError, match="absolute"):
+        Recipe.from_dict({"name": "T", "model": "m", "runtime": "vllm", "volumes": ["/host:rel"]})
+
+
+def test_recipe_volumes_reject_malformed():
+    import pytest
+
+    with pytest.raises(ValueError):
+        Recipe.from_dict({"name": "T", "model": "m", "runtime": "vllm", "volumes": ["no-colon"]})
+
+
+def test_recipe_volumes_roundtrip_state():
+    recipe = Recipe.from_dict({"name": "T", "model": "m", "runtime": "vllm", "volumes": ["/host/d:/drafter"]})
+    state = recipe.__getstate__()
+    restored = Recipe._deserialize(state)
+    assert restored.volumes == {"/host/d": "/drafter"}
+
+
 def test_recipe_validate_invalid_mode():
     """Validate a recipe with invalid mode and verify error is generated.
 

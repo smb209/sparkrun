@@ -1601,6 +1601,34 @@ class TestDistributeResourcesTransferMode:
                 local_model="/models/qwen",
             )
 
+    @mock.patch("sparkrun.orchestration.ssh.run_remote_scripts_parallel")
+    @mock.patch("sparkrun.models.distribute.distribute_model_from_local", return_value=[])
+    @mock.patch("sparkrun.containers.distribute.distribute_image_from_local")
+    @mock.patch("sparkrun.orchestration.infiniband.validate_ib_connectivity", return_value={})
+    @mock.patch("sparkrun.orchestration.infiniband.detect_ib_for_hosts")
+    @mock.patch("sparkrun.orchestration.primitives.build_ssh_kwargs", return_value={})
+    def test_volumes_missing_dir_raises(self, mock_ssh, mock_ib, mock_validate, mock_img, mock_model, mock_remote_checks):
+        """Missing volume host path raises DistributionError."""
+        mock_ib.return_value = mock.MagicMock(nccl_env={}, ib_ip_map={}, mgmt_ip_map={})
+        mock_img.return_value = []
+        mock_remote_checks.return_value = [
+            RemoteResult(host="h1", returncode=2, stdout="missing:/host/drafter\n", stderr=""),
+            RemoteResult(host="h2", returncode=0, stdout="", stderr=""),
+        ]
+        from sparkrun.orchestration.distribution import DistributionError, distribute_resources
+
+        with pytest.raises(DistributionError, match="Volume host paths not found"):
+            distribute_resources(
+                "img:latest",
+                "org/model",
+                ["h1", "h2"],
+                "/cache",
+                self._make_config(),
+                dry_run=False,
+                transfer_mode="local",
+                volumes={"/host/drafter": "/drafter"},
+            )
+
     @mock.patch("sparkrun.orchestration.distribution._distribute_image_push")
     @mock.patch("sparkrun.containers.distribute.distribute_image_from_head")
     @mock.patch("sparkrun.orchestration.distribution.is_control_in_cluster", return_value=False)

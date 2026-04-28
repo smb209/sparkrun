@@ -59,6 +59,21 @@ def test_build_volumes_without_local_model():
     assert "/local_model" not in volumes.values()
 
 
+def test_build_volumes_with_recipe_volumes():
+    volumes = build_volumes(cache_dir="/cache", recipe_volumes={"/host/drafter": "/drafter"})
+    assert volumes["/host/drafter"] == "/drafter"
+
+
+def test_build_volumes_recipe_volumes_coexist_with_local_model():
+    volumes = build_volumes(
+        cache_dir="/cache",
+        local_model="/models/qwen",
+        recipe_volumes={"/host/drafter": "/drafter"},
+    )
+    assert volumes["/models/qwen"] == "/local_model"
+    assert volumes["/host/drafter"] == "/drafter"
+
+
 # ---------------------------------------------------------------------------
 # run_script_on_host / run_command_on_host cross-user dispatch tests
 # ---------------------------------------------------------------------------

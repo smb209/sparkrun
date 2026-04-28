@@ -2155,6 +2155,52 @@ class TestOptionOverrides:
             assert call_kwargs["recipe"].local_model == "/models/qwen"
             assert call_kwargs["overrides"]["local_model"] == "/models/qwen"
 
+    def test_volume_override(self, runner, reset_bootstrap):
+        """-v/--volume merges host:container mounts into recipe.volumes."""
+        with mock.patch.object(SglangRuntime, "run", return_value=0) as mock_run:
+            result = runner.invoke(
+                main,
+                [
+                    "run",
+                    _TEST_RECIPE_NAME,
+                    "--solo",
+                    "--dry-run",
+                    "--hosts",
+                    "localhost",
+                    "-v",
+                    "/host/drafter:/drafter",
+                    "--volume",
+                    "/host/data:/data",
+                ],
+            )
+
+            assert result.exit_code == 0, result.output
+            mock_run.assert_called_once()
+            call_kwargs = mock_run.call_args.kwargs
+            assert call_kwargs["recipe"].volumes == {
+                "/host/drafter": "/drafter",
+                "/host/data": "/data",
+            }
+            # Volumes are not emitted as template-substitution overrides.
+            assert "volumes" not in call_kwargs["overrides"]
+
+    def test_volume_bad_spec_errors(self, runner, reset_bootstrap):
+        """A relative host path produces a clear error."""
+        result = runner.invoke(
+            main,
+            [
+                "run",
+                _TEST_RECIPE_NAME,
+                "--solo",
+                "--dry-run",
+                "--hosts",
+                "localhost",
+                "-v",
+                "rel/path:/drafter",
+            ],
+        )
+        assert result.exit_code != 0
+
     def test_max_model_len_override(self, runner, reset_bootstrap):
         """--max-model-len sets the override."""
         with mock.patch.object(SglangRuntime, "run", return_value=0) as mock_run:

@@ -799,6 +799,13 @@ def _apply_recipe_overrides(
 
     for k, v in kwargs.items():
         if v is not None:
+            if k == "volumes" and recipe is not None:
+                from sparkrun.core.recipe import parse_volume_spec
+
+                for spec in v:
+                    host, container = parse_volume_spec(str(spec))
+                    recipe.volumes[host] = container
+                continue
             overrides[k] = v
             if k == "local_model" and recipe is not None:
                 recipe.local_model = osp.expandvars(osp.expanduser(str(v)))

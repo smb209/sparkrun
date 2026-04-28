@@ -46,6 +46,13 @@ logger = logging.getLogger(__name__)
 @click.option("--port", type=int, default=None, help="Override serve port")
 @click.option("--served-model-name", default=None, help="Override served model name")
 @click.option("--local-model", default=None, type=click.Path(), help="Use a host-side local model directory")
+@click.option(
+    "-v",
+    "--volume",
+    "volumes",
+    multiple=True,
+    help="Mount a host directory into the container (HOST:CONTAINER). Repeatable.",
+)
 @click.option("--ray-port", type=int, default=46379, help="Ray GCS port (vllm-ray)", hidden=HIDE_ADVANCED_OPTIONS)
 @click.option("--init-port", type=int, default=25000, help="vllm/SGLang distributed init port", hidden=HIDE_ADVANCED_OPTIONS)
 @click.option("--dashboard", is_flag=True, help="Enable Ray dashboard on head node", hidden=HIDE_ADVANCED_OPTIONS)
@@ -106,6 +113,7 @@ def run(
     gpu_mem,
     served_model_name,
     local_model,
+    volumes,
     max_model_len,
     image,
     ray_port,
@@ -180,6 +188,7 @@ def run(
         port=port,
         served_model_name=served_model_name,
         local_model=local_model,
+        volumes=volumes or None,
     )
 
     # Validate recipe (after resolve so runtime is populated)

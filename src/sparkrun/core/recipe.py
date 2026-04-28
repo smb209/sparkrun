@@ -62,7 +62,51 @@ _KNOWN_KEYS = {
     "builder",
     "builder_config",
     "executor_config",
+    "volumes",
 }
+
+
+def parse_volume_spec(spec: str) -> tuple[str, str]:
+    """Parse a docker-style ``HOST:CONTAINER`` volume spec.
+
+    Applies ``expanduser``/``expandvars`` to the host path. Both host
+    and container paths must be absolute.
+    """
+    if not isinstance(spec, str) or ":" not in spec:
+        raise ValueError("volume spec must be HOST:CONTAINER (got %r)" % spec)
+    host, _, container = spec.partition(":")
+    host = osp.expandvars(osp.expanduser(host.strip()))
+    container = container.strip()
+    if not host or not container:
+        raise ValueError("volume spec must be HOST:CONTAINER (got %r)" % spec)
+    if not osp.isabs(host):
+        raise ValueError("volume host path must be absolute: %r" % host)
+    if not osp.isabs(container):
+        raise ValueError("volume container path must be absolute: %r" % container)
+    return host, container
+
+
+def parse_volumes(value: Any) -> dict[str, str]:
+    """Normalize a ``volumes`` field (list of ``HOST:CONTAINER`` strings or dict) to a dict."""
+    if value is None:
+        return {}
+    result: dict[str, str] = {}
+    if isinstance(value, dict):
+        for host, container in value.items():
+            host_expanded = osp.expandvars(osp.expanduser(str(host).strip()))
+            container_str = str(container).strip()
+            if not osp.isabs(host_expanded):
+                raise ValueError("volume host path must be absolute: %r" % host_expanded)
+            if not osp.isabs(container_str):
+                raise ValueError("volume container path must be absolute: %r" % container_str)
+            result[host_expanded] = container_str
+        return result
+    if isinstance(value, (list, tuple)):
+        for spec in value:
+            host, container = parse_volume_spec(str(spec))
+            result[host] = container
+        return result
+    raise ValueError("volumes must be a list or dict (got %r)" % type(value).__name__)
 
 
 def _sort_dict_by_patterns(data: dict[str, Any], patterns: list[str]) -> dict[str, Any]:
@@ -384,6 +428,7 @@ class Recipe:
         self.local_model: str | None = data.get("local_model")
         if self.local_model:
             self.local_model = osp.expandvars(osp.expanduser(str(self.local_model)))
+        self.volumes: dict[str, str] = parse_volumes(data.get("volumes"))
         self.model_revision: str | None = data.get("model_revision")
         self.runtime: str = data.get("runtime", "")  # init to empty string if not provided
         self.runtime_version: str = data.get("runtime_version", "")
@@ -890,6 +935,7 @@ class Recipe:
             "description": self.description,
             "model": self.model,
             "local_model": self.local_model,
+            "volumes": dict(self.volumes),
             "model_revision": self.model_revision,
             "runtime": self.runtime,
             "runtime_version": self.runtime_version,
@@ -926,6 +972,7 @@ class Recipe:
         self.description = state.get("description", "")
         self.model = state.get("model", "")
         self.local_model = state.get("local_model")
+        self.volumes = dict(state.get("volumes") or {})
         self.model_revision = state.get("model_revision")
         self.runtime = state.get("runtime", "")
         self.runtime_version = state.get("runtime_version", "")

@@ -447,7 +447,18 @@ class TrtllmRuntime(RuntimePlugin):
 
         progress = kwargs.pop("progress", None)
 
-        ctx = ClusterContext.build(self, hosts, image, cluster_id, env, cache_dir, recipe.local_model if recipe else None, config, dry_run)
+        ctx = ClusterContext.build(
+            self,
+            hosts,
+            image,
+            cluster_id,
+            env,
+            cache_dir,
+            recipe.local_model if recipe else None,
+            config,
+            dry_run,
+            recipe_volumes=recipe.volumes if recipe else None,
+        )
         extra_docker_opts = self.get_extra_docker_opts()
 
         self._print_cluster_banner(

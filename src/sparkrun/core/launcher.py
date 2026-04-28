@@ -260,6 +260,7 @@ def launch_inference(
             transfer_interface=transfer_interface,
             local_cache_dir=effective_local_cache,
             local_model=recipe.local_model,
+            volumes=dict(recipe.volumes) if recipe.volumes else None,
             pre_ib=transfer_result,
         )
         # Re-save job metadata with IP maps from IB detection

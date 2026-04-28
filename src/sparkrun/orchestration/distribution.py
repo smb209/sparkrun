@@ -22,6 +22,47 @@ class DistributionError(Exception):
     """Raised when resource distribution (image or model sync) fails."""
 
 
+def _validate_volumes_on_hosts(
+    volumes: dict[str, str],
+    hosts: list[str],
+    ssh_kwargs: dict,
+    dry_run: bool,
+) -> dict[str, list[str]]:
+    """Validate that each volume host path is an existing directory on every host.
+
+    Returns ``{host: [missing_paths...]}`` for hosts with any missing dirs.
+    """
+    if dry_run or not hosts or not volumes:
+        return {}
+
+    from sparkrun.orchestration.ssh import run_remote_scripts_parallel
+
+    lines = ["#!/usr/bin/env bash", "missing=()"]
+    for host_path in volumes:
+        quoted = host_path.replace("'", "'\"'\"'")
+        lines.append("[ -d '%s' ] || missing+=('%s')" % (quoted, quoted))
+    lines.append('if [ "${#missing[@]}" -gt 0 ]; then')
+    lines.append('  printf "missing:%s\\n" "${missing[@]}"')
+    lines.append("  exit 2")
+    lines.append("fi")
+    script = "\n".join(lines) + "\n"
+
+    results = run_remote_scripts_parallel(
+        hosts,
+        script,
+        timeout=20,
+        dry_run=dry_run,
+        **ssh_kwargs,
+    )
+    failures: dict[str, list[str]] = {}
+    for r in results:
+        if r.success:
+            continue
+        missing_paths = [line[len("missing:"):] for line in (r.stdout or "").splitlines() if line.startswith("missing:")]
+        failures[r.host] = missing_paths or ["<check_failed>"]
+    return failures
+
+
 def _validate_local_model_on_hosts(
     local_model: str,
     hosts: list[str],
@@ -361,6 +402,7 @@ def distribute_resources(
     transfer_interface: str | None = None,
     local_cache_dir: str | None = None,
     local_model: str | None = None,
+    volumes: dict[str, str] | None = None,
     pre_ib: TransferModeResult | None = None,
 ) -> tuple["ClusterCommEnv | None", dict[str, str], dict[str, str]]:
     """Detect IB, distribute container image and model to target hosts.
@@ -618,7 +660,14 @@ def distribute_resources(
                 % (local_model, "; ".join(parts))
             )
         logger.info("local_model is set (%s); skipping model distribution.", local_model)
-    elif effective_model:
+
+    if volumes:
+        vol_failures = _validate_volumes_on_hosts(volumes, host_list, ssh_kwargs, dry_run)
+        if vol_failures:
+            parts = ["%s: %s" % (h, ", ".join(paths)) for h, paths in sorted(vol_failures.items())]
+            raise DistributionError("Volume host paths not found on: %s" % "; ".join(parts))
+
+    if not local_model and effective_model:
         logger.log(_PROGRESS_LEVEL, "  Syncing model to %d host(s)", len(host_list))
         with pending_op(_lock_id, "model_download", **_pop_kw):
             if transfer_mode == "local":

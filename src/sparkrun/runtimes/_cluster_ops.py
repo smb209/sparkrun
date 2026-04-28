@@ -59,6 +59,7 @@ class ClusterContext:
         config: SparkrunConfig | None,
         dry_run: bool,
         topology: str | None = None,
+        recipe_volumes: dict[str, str] | None = None,
     ) -> ClusterContext:
         """Build context from runtime hooks and config.
 
@@ -70,7 +71,7 @@ class ClusterContext:
 
         num_nodes = len(hosts)
         ssh_kwargs = build_ssh_kwargs(config)
-        volumes = build_volumes(cache_dir, extra=runtime.get_extra_volumes(), local_model=local_model)
+        volumes = build_volumes(cache_dir, extra=runtime.get_extra_volumes(), local_model=local_model, recipe_volumes=recipe_volumes)
         runtime_env = runtime.get_cluster_env(head_ip="<pending>", num_nodes=num_nodes)
         all_env = merge_env(
             runtime.get_common_env(),

@@ -31,6 +31,7 @@ Everything else is optional. When `command` is omitted, the runtime generates it
 |-------------------|--------|-------------|-----------------|--------------------------------------------------------------------------------|
 | `model`           | string | no*         | —               | HuggingFace model ID or GGUF spec (`Qwen/Qwen3-1.7B-GGUF:Q4_K_M`)             |
 | `local_model`     | string | no*         | `null`          | Absolute host path to local model dir, mounted at `/local_model` in container |
+| `volumes`         | list/map | no        | `[]`            | Extra host→container bind mounts (`["HOST:CONTAINER", ...]` or `{HOST: CONTAINER}`) |
 | `model_revision`  | string | no          | `null`          | Pin to a specific HF revision (branch, tag, or commit hash)                   |
 | `runtime`         | string | no          | auto-detected   | Runtime identifier. See [Runtime Resolution](#runtime-resolution)              |
 | `runtime_version` | string | no          | `""`            | Informational version tag                                                      |
@@ -47,6 +48,12 @@ reproducible deployments.
 `local_model` makes sparkrun skip model download/distribution and bind-mount the host directory to `/local_model`. When
 set, `{model}` resolves to `/local_model` for command generation. If `model` is also provided, it is treated as metadata
 (for display and VRAM estimation), not as the serving path.
+
+`volumes` mounts arbitrary host directories into every container (docker-style `HOST:CONTAINER`). Host paths support
+`~` and `$VAR` expansion and must be absolute. The path must exist as a directory on every target host — sparkrun
+validates this before launch. Additional mounts can also be passed per-invocation with `-v/--volume` on `sparkrun run`,
+and they are merged with any recipe-level `volumes`. Reference the in-container path directly from your `command`
+template (e.g. a drafter model at `~/models/drafter:/drafter` → `--speculative-model /drafter`).
 
 ### Topology
 

@@ -57,6 +57,7 @@ def build_volumes(
     cache_dir: str | None = None,
     extra: dict[str, str] | None = None,
     local_model: str | None = None,
+    recipe_volumes: dict[str, str] | None = None,
 ) -> dict[str, str]:
     """Build the standard volume mapping for HuggingFace cache + extras.
 
@@ -65,6 +66,7 @@ def build_volumes(
             :data:`sparkrun.config.DEFAULT_HF_CACHE_DIR`).
         extra: Additional host→container volume mappings.
         local_model: Optional host-side local model directory to mount.
+        recipe_volumes: Extra bind mounts from the recipe ``volumes`` field.
 
     Returns:
         Merged volume dict.
@@ -75,6 +77,8 @@ def build_volumes(
         volumes[local_model] = "/local_model"
     if extra:
         volumes.update(extra)
+    if recipe_volumes:
+        volumes.update(recipe_volumes)
     return volumes
 
 
