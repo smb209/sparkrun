@@ -1095,6 +1095,7 @@ class RuntimePlugin(Plugin):
             config=config,
             dry_run=dry_run,
             topology=topology,
+            recipe_volumes=recipe.volumes if recipe else None,
         )
         return run_native_cluster(
             runtime=self,
